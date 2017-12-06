@@ -9,15 +9,15 @@ import threading
 import queue
 import uuid
 
-config = configparser.SafeConfigParser()
+config = configparser.ConfigParser()
 config.read('config.ini', encoding="utf8")
-token = config.get('General', 'Token')
+token = config['General']['Token']
 
 vote_queue = queue.Queue()
 
 if config.has_section('General'):
     if config.has_option('General', 'Token') and config.has_option('General', 'Lang'):
-        token = config.get('General', 'Token')
+        token = config['General']['Token']
     else:
         config.set('General', 'Token', 'REPLACE_THIS_WITH_TOKEN')
         config.set('General', 'Lang', 'REPLACE_THIS_WITH_YOUR_LANG_INI')
@@ -36,17 +36,17 @@ else:
 
 def getValue(dest, section, title, defaultValue):
     if dest.has_option(section, title):
-        return dest.get(section, title)
+        return dest[section][title]
     else:
         dest.set(section, title, defaultValue)
         return defaultValue
 
 # 讀入語言字串
-strings = configparser.SafeConfigParser()
-strings.read(config.get('General', 'Lang'), encoding="utf8")
+strings = configparser.ConfigParser()
+strings.read(config['General']['Lang'], encoding="utf8")
 
 #讀入群組規則
-group = configparser.SafeConfigParser()
+group = configparser.ConfigParser()
 group.read('groupPolicy.ini')
 
 #keyboards
@@ -56,44 +56,47 @@ createKeyboard = lambda x: InlineKeyboardMarkup([createButton(i) for i in x])
 
 vote_keyboard = createKeyboard([
                                     [
-                                        [strings.get('Boolean', 'Agree'), '1'],
-                                        [strings.get('Boolean', 'DisAgree'), '0'],
-                                        [strings.get('Boolean', 'NoComment'), '2']
+                                        [strings['Boolean']['Agree'], '1'],
+                                        [strings['Boolean']['DisAgree'], '0'],
+                                        [strings['Boolean']['NoComment'], '2']
                                     ],
                                     [
-                                        [strings.get('Boolean', 'Cancel'), 'cancel']\
+                                        [strings['Boolean']['Cancel'], 'cancel']\
                                     ]
                                 ])
     
 
 restrict_keyboard = createKeyboard([
                                         [
-                                            [strings.get('Restriction', 'SendMessage'), 'sendMessage'],
-                                            [strings.get('Restriction', 'SendMedia'), 'sendMedia'],
-                                            [strings.get('Restriction', 'SendOther'), 'sendOther'],
-                                            [strings.get('Restriction', 'WebPreview'), 'webPreview']
+                                            [strings['Restriction']['SendMessage'], 'sendMessage'],
+                                            [strings['Restriction']['SendMedia'], 'sendMedia'],
+                                            [strings['Restriction']['SendOther'], 'sendOther'],
+                                            [strings['Restriction']['WebPreview'], 'webPreview']
                                         ],
                                         [
-                                            [strings.get('Boolean', 'Cancel'), 'cancel']
+                                            [strings['Boolean']['Cancel'], 'cancel']
                                         ]
                                     ])
                                     
 admin_keyboard = createKeyboard([
                                         [
-                                            [strings.get('Admin', 'CanChangeInfo'), 'canChangeInfo'],
-                                            [strings.get('Admin', 'CanDeleteMessages'), 'canDeleteMessages'],
-                                            [strings.get('Admin', 'CanInviteUsers'), 'canInviteUsers']
+                                            [strings['Admin']['CanChangeInfo'], 'canChangeInfo'],
+                                            [strings['Admin']['CanDeleteMessages'], 'canDeleteMessages'],
+                                            [strings['Admin']['CanInviteUsers'], 'canInviteUsers']
 
                                         ],
                                         [
-                                            [strings.get('Admin', 'CanRestrictMembers'), 'canRestrictMembers'],
-                                            [strings.get('Admin', 'CanPinMessages'), 'canPinMessages'],
-                                            [strings.get('Admin', 'CanPromoteMembers'), 'canPromoteMembers']
+                                            [strings['Admin']['CanRestrictMembers'], 'canRestrictMembers'],
+                                            [strings['Admin']['CanPinMessages'], 'canPinMessages'],
+                                            [strings['Admin']['CanPromoteMembers'], 'canPromoteMembers']
                                         ],
                                         [
-                                            [strings.get('Boolean', 'Cancel'), 'cancel']
+                                            [strings['Boolean']['Cancel'], 'cancel']
                                         ]
                                     ])
+
+commands = ['ban', 'unban', 'setDesc', 'setPolicy', 'setTitle', 'restrict', 'admin']
+simpleCommands = ['ban', 'unban', 'setDesc', 'setPolicy', 'setTitle']
                                             
 # logging
 import logging
@@ -106,7 +109,7 @@ def start(bot, update):
 
 @run_async
 def help(bot, update):
-    update.message.reply_text(strings.get('Help','Help').replace('\\n', '\n').replace('^', ' '))
+    update.message.reply_text(strings['Help']['Help'].replace('\\n', '\n').replace('^', ' '))
 
 chat_member = {}
 
@@ -125,12 +128,13 @@ def checkmember(chatid,userid):
     
 def getGroupPolicyCount(chat_id, command):
     temp = False
+    chat_id = str(chat_id)
     if group.has_option(chat_id, command):
         if '%' in group.get(chat_id, command, raw=True): #百分比投票制
             notNum = True
-            temp = group.get(chat_id, command)
+            temp = group[chat_id][command]
         else: #固定人數投票制
-            return int(group.get(chat_id, command))
+            return int(group[chat_id][command])
     if not temp: #查無群組資料
         try:
             temp = group.get('Universal', command, raw=True) #採用預設值
@@ -144,6 +148,14 @@ def getGroupPolicyCount(chat_id, command):
         global tgbot
         return int(math.ceil(float(temp.replace('%',''))*tgbot.getChatMembersCount(chat_id)/100)) 
 
+def getGroupPolicyRaw(chat_id, command):
+    try:
+        value = group.get(chat_id, command, raw=True)
+    except configparser.NoSectionError:
+        value = group.get('Universal', command, raw=True)
+    
+    return value
+
 
 group_vote = {}
 
@@ -156,7 +168,7 @@ def vote(chat_id, title, command, commandArgs, status='voting', proposer=None): 
     
     global vote_keyboard, restrict_keyboard, admin_keyboard
 
-    if command in ['ban', 'unban', 'setDesc', 'setPolicy', 'setTitle']:
+    if command in simpleCommands:
         keyboard = vote_keyboard
     else:
         keyboard = {'restrict': restrict_keyboard,
@@ -170,11 +182,11 @@ def vote(chat_id, title, command, commandArgs, status='voting', proposer=None): 
         parse_mode='Markdown',
         text="{}\n\n{} : 0\n{}: 0\n{}: 0\n\nUUID: {}\n{}: {}".format(
             title,
-            strings.get('Boolean', 'Agree'), 
-            strings.get('Boolean', 'Disagree'), 
-            strings.get('Boolean', 'NoComment'),
+            strings['Boolean']['Agree'], 
+            strings['Boolean']['Disagree'], 
+            strings['Boolean']['NoComment'],
             voteuuid,
-            strings.get('Vote', 'ExpireTime'),
+            strings['Vote']['ExpireTime'],
             datetime.datetime.fromtimestamp(deadlineTime).strftime('%Y/%m/%d %H:%M:%S')),
         reply_markup=keyboard).message_id)
     group_vote[chatid][msgid] = {}
@@ -189,7 +201,7 @@ def vote(chat_id, title, command, commandArgs, status='voting', proposer=None): 
     group_vote[chatid][msgid]['deadline'] = datetime.datetime.fromtimestamp(deadlineTime).strftime('%Y/%m/%d %H:%M:%S')
     group_vote[chatid][msgid]['uuid'] = voteuuid
 
-    if command in ['ban', 'unban', 'setDesc', 'setPolicy', 'setTitle']:
+    if command in simpleCommands:
         group_vote[chatid][msgid]['y'] = 0
         group_vote[chatid][msgid]['n'] = 0
         group_vote[chatid][msgid]['u'] = 0
@@ -224,7 +236,7 @@ def vote_callback(bot, update):
         try:
             group_vote[chat_id][message_id][user_id]
         except KeyError:
-            if command in ['ban', 'unban', 'setDesc', 'setPolicy', 'setTitle']:
+            if command in simpleCommands:
                 group_vote[chat_id][message_id][user_id] = -1
             elif command == 'restrict':
                 group_vote[chat_id][message_id][user_id] = {
@@ -249,46 +261,46 @@ def vote_callback(bot, update):
             else:
                 alert= "Cancel vote."
     
-        if command in ['ban', 'unban', 'setDesc', 'setPolicy', 'setTitle']:
+        if command in simpleCommands:
             if query.data == "0" :
                 group_vote[chat_id][message_id]['voted'] = True
                 if group_vote[chat_id][message_id][user_id] == 0:
                     group_vote[chat_id][message_id][user_id] = -1
                     group_vote[chat_id][message_id]['n'] -= 1
-                    alert=strings.get('Vote', "Undo")
+                    alert=strings['Vote']["Undo"]
                 else:
                     group_vote[chat_id][message_id][user_id] = 0
                     group_vote[chat_id][message_id]['n'] += 1
-                    alert=strings.get('Vote', "Disagree")
+                    alert=strings['Vote']["Disagree"]
             elif query.data == "1":
                 group_vote[chat_id][message_id]['voted'] = True
                 if group_vote[chat_id][message_id][user_id] == 1:
                     group_vote[chat_id][message_id][user_id] = -1
                     group_vote[chat_id][message_id]['y'] -= 1
-                    alert=strings.get('Vote', "Undo")
+                    alert=strings['Vote']["Undo"]
                 else:
                     group_vote[chat_id][message_id][user_id] = 1
                     group_vote[chat_id][message_id]['y'] += 1
-                    alert=strings.get('Vote', "Agree")
+                    alert=strings['Vote']["Agree"]
             elif query.data == "2" :
                 group_vote[chat_id][message_id]['voted'] = True
                 if group_vote[chat_id][message_id][user_id] == 2:
                     group_vote[chat_id][message_id][user_id] = -1
                     group_vote[chat_id][message_id]['u'] -=1
-                    alert=strings.get('Vote', "Undo")
+                    alert=strings['Vote']["Undo"]
                 else:
                     group_vote[chat_id][message_id][user_id] = 2
                     group_vote[chat_id][message_id]['u'] += 1
-                    alert=strings.get('Vote', "NoComment")
+                    alert=strings['Vote']["NoComment"]
             global vote_keyboard
             keyboard = vote_keyboard
             msg = "{}\n\n{} : {}\n{}: {}\n{}: {}".format(
                     group_vote[chat_id][message_id]['title'],
-                    strings.get('Boolean', 'Agree'),
+                    strings['Boolean']['Agree'],
                     str(group_vote[chat_id][message_id]['y']),
-                    strings.get('Boolean', 'Disagree'),
+                    strings['Boolean']['Disagree'],
                     str(group_vote[chat_id][message_id]['n']),
-                    strings.get('Boolean', 'NoComment'),
+                    strings['Boolean']['NoComment'],
                     str(group_vote[chat_id][message_id]['u']))
             
         elif command in ['restrict', 'admin']:
@@ -296,22 +308,22 @@ def vote_callback(bot, update):
             if group_vote[chat_id][message_id][user_id][query.data] == -1: #對 query.data 的投票為 -1,1,0,2 之一
                 group_vote[chat_id][message_id][user_id][query.data] = 1
                 group_vote[chat_id][message_id][query.data][0] +=1
-                alert=strings.get('Vote', "Agree")
+                alert=strings['Vote']["Agree"]
             elif group_vote[chat_id][message_id][user_id][query.data] == 1:
                 group_vote[chat_id][message_id][user_id][query.data] = 0
                 group_vote[chat_id][message_id][query.data][0] -=1
                 group_vote[chat_id][message_id][query.data][1] +=1
-                alert=strings.get('Vote', "Disagree")
+                alert=strings['Vote']["Disagree"]
             elif group_vote[chat_id][message_id][user_id][query.data] == 0:
                 group_vote[chat_id][message_id][user_id][query.data] = 2
                 group_vote[chat_id][message_id][query.data][1] -=1
                 group_vote[chat_id][message_id][query.data][2] +=1
-                alert=strings.get('Vote', "NoComment")
+                alert=strings['Vote']["NoComment"]
             elif group_vote[chat_id][message_id][user_id][query.data] == 2:
                 group_vote[chat_id][message_id][user_id][query.data] = 1
                 group_vote[chat_id][message_id][query.data][2] -=1
                 group_vote[chat_id][message_id][query.data][0] +=1
-                alert=strings.get('Vote', "Agree")
+                alert=strings['Vote']["Agree"]
                 
             global restrict_keyboard, admin_keyboard
             keyboard = {'restrict': restrict_keyboard,
@@ -321,35 +333,35 @@ def vote_callback(bot, update):
             if command == 'restrict':
                 msg = "{}\n\n{} : {}\n{}: {}\n{}: {}\n{} : {}".format(
                     group_vote[chat_id][message_id]['title'],
-                    strings.get('Restriction', 'SendMessage'),
+                    strings['Restriction']['SendMessage'],
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['sendMessage']]),
-                    strings.get('Restriction', 'SendMedia'), 
+                    strings['Restriction']['SendMedia'], 
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['sendMedia']]),
-                    strings.get('Restriction', 'SendOther'),
+                    strings['Restriction']['SendOther'],
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['sendOther']]),
-                    strings.get('Restriction', 'WebPreview'),
+                    strings['Restriction']['WebPreview'],
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['webPreview']])
                     )
             elif command == 'admin':
                 msg = "{}\n\n{} : {}\n{}: {}\n{}: {}\n{} : {}\n{} : {}\n{} : {}".format(
                     group_vote[chat_id][message_id]['title'],
-                    strings.get('Admin', 'CanChangeInfo'),
+                    strings['Admin']['CanChangeInfo'],
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['canChangeInfo']]),
-                    strings.get('Admin', 'CanDeleteMessages'), 
+                    strings['Admin']['CanDeleteMessages'], 
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['canDeleteMessages']]),
-                    strings.get('Admin', 'CanInviteUsers'),
+                    strings['Admin']['CanInviteUsers'],
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['canInviteUsers']]),
-                    strings.get('Admin', 'CanRestrictMembers'),
+                    strings['Admin']['CanRestrictMembers'],
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['canRestrictMembers']]),
-                    strings.get('Admin', 'CanPinMessages'),
+                    strings['Admin']['CanPinMessages'],
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['canPinMessages']]),
-                    strings.get('Admin', 'CanPromoteMembers'),
+                    strings['Admin']['CanPromoteMembers'],
                     '/'.join([str(i) for i in group_vote[chat_id][message_id]['canPromoteMembers']])
                     )
         
         group_vote[chat_id][message_id]['message'] = msg
         msg += '\n\nUUID: ' + group_vote[chat_id][message_id]['uuid']
-        msg += '\n' + strings.get('Vote', 'ExpireTime') + ': '+ group_vote[chat_id][message_id]['deadline']
+        msg += '\n' + strings['Vote']['ExpireTime'] + ': '+ group_vote[chat_id][message_id]['deadline']
 
         
         bot.edit_message_text(text=msg,
@@ -372,17 +384,17 @@ def checkVoteExpired():
         #print("林北這個Thread 在 checking Chat id" + chat_id + " Message ID " + message_id + " 的la Time : "+str(time.time()) +" Expire Time : " + str(group_vote[chat_id][message_id]['time'] + getGroupPolicyCount(chat_id, 'expire')) + " eXPIRE : " +  str(getGroupPolicyCount(chat_id, 'expire')))
         
         if int(time.time()) > (group_vote[chat_id][message_id]['time'] + getGroupPolicyCount(chat_id, 'expire')):
-            if command in ['ban', 'unban', 'setDesc', 'setPolicy', 'setTitle']: 
+            if command in simpleCommands: 
                 if vote['y'] > vote['n'] and (vote['y'] + vote['n'] + vote['u']) >= getGroupPolicyCount(chat_id, command):
                     tgbot.edit_message_text(
                         parse_mode='Markdown',
                         text='{}\n\n{}'.format(
                             group_vote[chat_id][message_id]['message'],
-                            strings.get('Vote', "Pass")),
+                            strings['Vote']["Pass"]),
                         chat_id=chat_id,
                         message_id=message_id)
                         
-                    tgbot.sendMessage(chat_id, quote=True, reply_to_message_id=int(message_id), text=strings.get('Vote', "PassMessage"))
+                    tgbot.sendMessage(chat_id, quote=True, reply_to_message_id=int(message_id), text=strings['Vote']["PassMessage"])
                     if command == 'setPolicy':
                         try:
                             group.set(chat_id, vote['commandArgs']['command'], vote['commandArgs']['value'])
@@ -391,6 +403,7 @@ def checkVoteExpired():
                             group.set(chat_id, vote['commandArgs']['command'], vote['commandArgs']['value'])
                         with open('groupPolicy.ini', 'w') as configfile:
                             group.write(configfile)
+                        group_vote[str(chat_id)].pop(str(message_id))
                         pass
                     else:
                         {
@@ -399,17 +412,19 @@ def checkVoteExpired():
                             'setDesc': tgbot.setChatDescription,
                             'setTitle': tgbot.setChatTitle
                         }[command](chat_id=chat_id, **vote['commandArgs'])
+                        group_vote[str(chat_id)].pop(str(message_id))
                         pass
                 else: #投票不通過
                     tgbot.edit_message_text(
                         parse_mode='Markdown',
                         text='{}\n\n{}'.format(
                             group_vote[chat_id][message_id]['message'],
-                            strings.get('Vote', "Fail")),
+                            strings['Vote']["Fail"]),
                         chat_id=chat_id,
                         message_id=message_id)
                         
-                    tgbot.sendMessage(chat_id, quote=True, reply_to_message_id=int(message_id), text=strings.get('Vote', "FailMessage"))
+                    tgbot.sendMessage(chat_id, quote=True, reply_to_message_id=int(message_id), text=strings['Vote']["FailMessage"])
+                    group_vote[str(chat_id)].pop(str(message_id))
                     pass
             
             elif command in ['restrict', 'admin']:
@@ -454,48 +469,49 @@ def checkVoteExpired():
                 if command == 'restrict':
                     resultText = '{}\n\n{}:\n{}:{}\n{}:{}\n{}:{}\n{}:{}\n'.format(
                                     group_vote[chat_id][message_id]['message'],
-                                    strings.get('Vote', 'VoteResult'),
-                                    strings.get('Restriction', 'SendMessage'),
-                                    strings.get('Boolean', tempResultText['sendMessage']),
-                                    strings.get('Restriction', 'SendMedia'),
-                                    strings.get('Boolean', tempResultText['sendMedia']),
-                                    strings.get('Restriction', 'SendOther'),
-                                    strings.get('Boolean', tempResultText['sendOther']),
-                                    strings.get('Restriction', 'WebPreview'),
-                                    strings.get('Boolean', tempResultText['webPreview'])
+                                    strings['Vote']['VoteResult'],
+                                    strings['Restriction']['SendMessage'],
+                                    strings['Boolean'][tempResultText['sendMessage']],
+                                    strings['Restriction']['SendMedia'],
+                                    strings['Boolean'][tempResultText['sendMedia']],
+                                    strings['Restriction']['SendOther'],
+                                    strings['Boolean'][tempResultText['sendOther']],
+                                    strings['Restriction']['WebPreview'],
+                                    strings['Boolean'][tempResultText['webPreview']]
                                     )
                 elif command == 'admin':
                     resultText = '{}\n\n{}:\n{}:{}\n{}:{}\n{}:{}\n{}:{}\n{}:{}\n{}:{}'.format(
                                     group_vote[chat_id][message_id]['message'],
-                                    strings.get('Vote', 'VoteResult'),
-                                    strings.get('Admin', 'CanChangeInfo'),
-                                    strings.get('Boolean', tempResultText['canChangeInfo']),
-                                    strings.get('Admin', 'CanDeleteMessages'),
-                                    strings.get('Boolean', tempResultText['canDeleteMessages']),
-                                    strings.get('Admin', 'CanInviteUsers'),
-                                    strings.get('Boolean', tempResultText['canInviteUsers']),
-                                    strings.get('Admin', 'CanRestrictMembers'),
-                                    strings.get('Boolean', tempResultText['canRestrictMembers']),
-                                    strings.get('Admin', 'CanPinMessages'),
-                                    strings.get('Boolean', tempResultText['canPinMessages']),
-                                    strings.get('Admin', 'CanPromoteMembers'),
-                                    strings.get('Boolean', tempResultText['canPromoteMembers'])
+                                    strings['Vote']['VoteResult'],
+                                    strings['Admin']['CanChangeInfo'],
+                                    strings['Boolean'][tempResultText['canChangeInfo']],
+                                    strings['Admin']['CanDeleteMessages'],
+                                    strings['Boolean'][tempResultText['canDeleteMessages']],
+                                    strings['Admin']['CanInviteUsers'],
+                                    strings['Boolean'][tempResultText['canInviteUsers']],
+                                    strings['Admin']['CanRestrictMembers'],
+                                    strings['Boolean'][tempResultText['canRestrictMembers']],
+                                    strings['Admin']['CanPinMessages'],
+                                    strings['Boolean'][tempResultText['canPinMessages']],
+                                    strings['Admin']['CanPromoteMembers'],
+                                    strings['Boolean'][tempResultText['canPromoteMembers']]
                                     )
 
                 tgbot.edit_message_text(chat_id=chat_id, message_id=message_id, text=resultText, parse_mode='Markdown')
-                tgbot.sendMessage(chat_id, quote=True, reply_to_message_id=int(message_id), text=strings.get('Vote', "OtherMessage"))
+                tgbot.sendMessage(chat_id, quote=True, reply_to_message_id=int(message_id), text=strings['Vote']["OtherMessage"])
                 {'restrict': tgbot.restrictChatMember,
                  'admin': tgbot.promoteChatMember}[command](chat_id=chat_id, **vote['commandArgs'], **tempResult)
+                group_vote[str(chat_id)].pop(str(message_id))
                 pass
                 
         else:
             vote_queue.put_nowait({ "chat_id" : chat_id , "message_id" : message_id })
-        time.sleep(int(config.get('General', 'checkInterval')))
+        time.sleep(int(config['General']['checkInterval']))
 
 def timeConvert(timeText): # timeText -> int (second)
     if '/' in timeText:
       return calendar.timegm(datetime.datetime.strptime(timeText, '%Y/%m/%d-%H:%M:%S').utctimetuple()) - \
-        3600*int(config.get('General', 'userUTC'))  
+        3600*int(config['General']['userUTC'])  
     elif any(i in timeText for i in ['y', 'M', 'd', 'h', 'm', 's']):
         timeArray, timeVar = ['0'], 0
         for i in timeText:
@@ -508,7 +524,7 @@ def timeConvert(timeText): # timeText -> int (second)
                 timeArray.append(i)
         for i in list(range(len(timeArray))):
             if timeArray[i].isalpha():
-                timeVar += {'y':31556926, 'M':2592000, 'd':86400, 'h':3600, 'm':60, 's':1}.get(timeArray[i], 0)*int(timeArray[i-1])
+                timeVar += {'y':31556926, 'M':2592000, 'd':86400, 'h':3600, 'm':60, 's':1}[timeArray[i]][0]*int(timeArray[i-1])
         return timeVar
     else:
         raise TypeError('{} is not a timetext.'.format(timeText))
@@ -538,10 +554,10 @@ def voteLoader(bot, update, args, command):
     else:
         try:
             if not args[0].isnumeric: # 第一個參數不是 userId 且沒有回覆訊息
-                update.message.reply_text(strings.get('Error', 'ArgumentError'))
+                update.message.reply_text(strings['Error']['ArgumentError'])
                 return
         except IndexError: # 奇怪的錯誤之類的
-            update.message.reply_text(strings.get('Error', 'ArgumentError'))
+            update.message.reply_text(strings['Error']['ArgumentError'])
             return
         
     if not (user_id and userName):
@@ -551,14 +567,14 @@ def voteLoader(bot, update, args, command):
     if not userFirstName:
          userFirstName = bot.getChatMember(chat_id=chat_id, user_id=user_id)['user']['first_name']
     
-    askString = {'ban':strings.get('Ask', 'AgreedToBan'),
-                 'restrict':strings.get('Ask', 'AgreedToRestrict'),
-                 'admin':strings.get('Ask', 'AgreedToAdmin'),
+    askString = {'ban':strings['Ask']['AgreedToBan'],
+                 'restrict':strings['Ask']['AgreedToRestrict'],
+                 'admin':strings['Ask']['AgreedToAdmin'],
                  'unban':strings.get('Ask','AgreedToUnban')}[command].format(
                      '[{}](tg://user?id={})'.format(userFirstName, user_id))
     
     if timeVar:
-        askString += strings.get('Ask', 'until') + datetime.datetime.fromtimestamp(untilTime).strftime('%Y/%m/%d %H:%M:%S') + '?'
+        askString += strings['Ask']['until'] + datetime.datetime.fromtimestamp(untilTime).strftime('%Y/%m/%d %H:%M:%S') + '?'
 
         vote(chat_id,
             '{}{}{} ?'.format(
@@ -598,7 +614,7 @@ def votedesc(bot, update, args=['']):
     else:
         text = args[0]
     text = text.replace('^', ' ').replace('\\n', '\n')
-    askString = strings.get('Ask', 'AgreedToSetDesc').replace('\\n','\n').format(text)
+    askString = strings['Ask']['AgreedToSetDesc'].replace('\\n','\n').format(text)
 
     vote(chat_id,
         askString,
@@ -608,11 +624,12 @@ def votedesc(bot, update, args=['']):
 @run_async
 def votetitle(bot, update, args=['']):
     chat_id = update.message.chat_id
+
     if update.message.reply_to_message is not None and args != ['']: # 有回覆訊息且沒有參數
         text = update.message.reply_to_message.text
     else:
-        text = args[0]
-    askString = strings.get('Ask', 'AgreedToSetTitle').replace('\\n','\n').format(text)
+        text = ''.join(i + ' ' for i in args)[:-1].replace('^', ' ')
+    askString = strings['Ask']['AgreedToSetTitle'].replace('\\n','\n').format(text)
 
     vote(chat_id,
         askString,
@@ -627,10 +644,10 @@ def voteset(bot, update, args):
 
     #Error
     if len(args) < 2:
-        bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings.get('Error', 'NotEnoughArguments'))
+        bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings['Error']['NotEnoughArguments'])
         return
     if len(args) > 2:
-        bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings.get('Error', 'TooMuchArguments'))
+        bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings['Error']['TooMuchArguments'])
         return
     if not args[0] in ['ban', 'restrict', 'admin', 'unban', 'expire']:
         return
@@ -639,22 +656,22 @@ def voteset(bot, update, args):
             try:
                 args[1] = str(timeConvert(args[1]))
             except TypeError:
-                bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings.get('Error', 'ArgumentError'))
+                bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings['Error']['ArgumentError'])
                 return
-        askString = strings.get('Ask', 'AgreedToSetExpire').format(str(datetime.timedelta(seconds=int(args[1]))))
+        askString = strings['Ask']['AgreedToSetExpire'].format(str(datetime.timedelta(seconds=int(args[1]))))
     elif args[0] in ['ban', 'restrict', 'admin', 'unban']:
         if not args[1].isnumeric():
             if not args[1][-1] == '%':
-                bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings.get('Error', 'ArgumentError'))
+                bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings['Error']['ArgumentError'])
                 return
             elif not args[1][:-1].isnumeric:
-                bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings.get('Error', 'ArgumentError'))
+                bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings['Error']['ArgumentError'])
                 return
             elif not 0 < float(args[1][:-1]) < 100:
-                bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings.get('Error', 'ArgumentError'))
+                bot.sendMessage(chat_id, reply_to_message_id=message_id, text=strings['Error']['ArgumentError'])
                 return
-        askString = strings.get('Ask', 'AgreedToSetMinimumCount').format(
-                strings.get('Command', args[0].capitalize()),
+        askString = strings['Ask']['AgreedToSetMinimumCount'].format(
+                strings['Command'][args[0].capitalize()],
                 args[1])
     askStrint += '?'
     vote(chat_id,
@@ -664,6 +681,40 @@ def voteset(bot, update, args):
          'value': args[1]       
         })
 
+@run_async
+def policy(bot, update, args=None):
+    chat_id = update.message.chat_id
+    message_id = update.message.message_id
+    text = ''
+    values = [i for i in group['Universal']]
+
+    if args:
+        for i in args:
+            if not i in values:
+                update.message.reply_text(strings['Error']['ArgumentErrorDetailed'].format(i))
+                return
+            if '%' in getGroupPolicyRaw(chat_id, i):
+                text += '*{}*: {} ({})\n'.format(
+                    i.capitalize(),
+                    str(getGroupPolicyRaw(chat_id, i)),
+                    str(getGroupPolicyCount(chat_id, i))
+                )
+            else:
+                text += '*' + i.capitalize() + '*: ' + str(getGroupPolicyRaw(chat_id, i)) + '\n'
+    else:
+        for i in values:
+            if '%' in getGroupPolicyRaw(chat_id, i):
+                    text += '*{}*: {} ({})\n'.format(
+                    i.capitalize(),
+                    str(getGroupPolicyRaw(chat_id, i)),
+                    str(getGroupPolicyCount(chat_id, i))
+                )
+            else:
+                text += '*' + i.capitalize() + '*: ' + str(getGroupPolicyRaw(chat_id, i)) + '\n'
+
+    text += '\n*Chat ID*: `' + str(chat_id) + '`\n\n'
+    update.message.reply_text(text, parse_mode='Markdown')
+    
 @run_async
 def getUserId(chat_id):
     global tgbot
@@ -739,6 +790,7 @@ def main():
     updater.dispatcher.add_handler(CommandHandler('votedesc', votedesc, pass_args=True))
     updater.dispatcher.add_handler(CommandHandler('votetitle', votetitle, pass_args=True))
     updater.dispatcher.add_handler(CommandHandler('voteset', voteset, pass_args=True))
+    updater.dispatcher.add_handler(CommandHandler('policy', policy, pass_args=True))
     updater.dispatcher.add_handler(CommandHandler('help', help))
     updater.dispatcher.add_handler(CommandHandler('start', start))
     updater.dispatcher.add_handler(CallbackQueryHandler(vote_callback))
